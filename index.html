@@ -4,7 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <meta name="theme-color" content="#0E6E6B">
-<title>Normie Studio</title>
+<title>Content Creation Studio</title>
+<meta name="apple-mobile-web-app-title" content="Creation Studio">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="application-name" content="Content Creation Studio">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230E6E6B'/%3E%3Ccircle cx='32' cy='32' r='13' fill='%23FF6F61'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800;900&display=swap" rel="stylesheet">
@@ -12,7 +16,7 @@
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span class="dot"></span>Normie Studio</div>
+  <div class="brand"><span class="dot"></span><span class="bname">Content Creation Studio</span></div>
   <nav class="modes" role="tablist">
     <button class="mode on" data-mode="record" role="tab">🎥 Record</button>
     <button class="mode" data-mode="upload" role="tab">✨ Enhance video</button>
@@ -23,14 +27,16 @@
 <main class="app">
   <section class="stage" id="stage">
     <div class="frame" id="frame">
+      <video id="camVid" playsinline webkit-playsinline muted autoplay></video>
       <canvas id="view"></canvas>
       <div class="prompter" id="prompter" hidden><div class="prompt-text" id="promptText"></div><div class="prompt-line"></div></div>
       <div class="chips"><span class="chip" id="aiChip">AI loading…</span><span class="chip rec" id="recChip" hidden>● <span id="recTime">0:00</span></span></div>
       <div class="countdown" id="countdown" hidden></div>
       <div class="placeholder" id="placeholder">
         <div class="ph-icon">🎥</div>
-        <p id="phMsg">Tap below to turn on your camera.</p>
-        <button class="btn big coral" id="startCam">Turn on camera</button>
+        <p id="phMsg">Tap the button to turn on your camera. Your phone will ask to use the camera and microphone: tap <b>Allow</b>.</p>
+        <button type="button" class="btn big coral" id="startCam">Turn on camera</button>
+        <p class="cam-help" id="camHelp" hidden></p>
       </div>
       <div class="placeholder" id="uploadPh" hidden>
         <div class="ph-icon">✨</div>
@@ -139,6 +145,7 @@
   </form>
 </dialog>
 <div class="toast" id="toast" hidden></div>
+<footer class="build" id="buildTag">Content Creation Studio · build 2026.11.17-cam2</footer>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

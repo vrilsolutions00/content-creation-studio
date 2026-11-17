@@ -79,6 +79,7 @@ function showTab(id){ $$('.tab').forEach(t=>t.classList.toggle('on',t.dataset.ta
 let mode='record';
 $$('.mode').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
 function setMode(m){ if(recording||exporting) return toast('Finish the current recording/export first');
+  if(m==='upload'&&!renderer) return toast('Enhancing videos needs WebGL2, which this browser doesn’t offer.',4000);
   mode=m; $$('.mode').forEach(b=>b.classList.toggle('on',b.dataset.mode===m));
   const takes=m==='takes'; $('#takesView').hidden=!takes; $('.tabs').hidden=takes; $('.panels').hidden=takes;
   $('#recControls').hidden=m!=='record'; $('#upControls').hidden=m!=='upload'||!upVid.src;
@@ -93,23 +94,24 @@ function setMode(m){ if(recording||exporting) return toast('Finish the current r
 
 // ---------- renderer & vision ----------
 const canvas=$('#view'); let renderer;
-try{ renderer=new Renderer(canvas); }catch(e){ $('#phMsg').textContent='This browser can’t run the studio (needs WebGL2). Try Safari 15+ or Chrome.'; console.error(e); }
+try{ renderer=new Renderer(canvas); }catch(e){ console.error('WebGL renderer unavailable',e); renderer=null; }
 const bgSel=$$('#bgImgs .sw').find(b=>b.dataset.k===bgImgSel)||$$('#bgImgs .sw')[0]; renderer&&renderer.setBackgroundImage(bgSel._cv);
 const vision=new Vision(); const tracker=new FaceTracker();
 const chip=$('#aiChip');
-vision.load(st=>{ chip.textContent=st==='ready'?'✨ Face & background AI on':st==='partial'?'AI partly loaded':'AI unavailable – basic filters only'; chip.classList.toggle('ok',st==='ready'); setTimeout(()=>chip.hidden=st==='ready',4000); })
-  .catch(e=>{ console.error(e); chip.textContent='AI unavailable – basic filters only'; });
+const visionNote=st=>{ if(rawMode) return; chip.hidden=false; chip.textContent=st==='ready'?'✨ Face & background AI on':st==='partial'?'AI partly loaded':'Face tracking didn’t load – basic filters only'; chip.classList.toggle('ok',st==='ready'); setTimeout(()=>{ if(!rawMode) chip.hidden=true; },st==='ready'?4000:8000); };
+Promise.race([vision.load(), new Promise((_,rej)=>setTimeout(()=>rej(new Error('face tracking timed out')),30000))])
+  .then(visionNote).catch(e=>{ console.warn('vision unavailable',e); if(vision.status==='loading') vision.status='failed'; visionNote('failed'); });
 
 // ---------- camera ----------
-const camVid=document.createElement('video'); camVid.playsInline=true; camVid.muted=true; camVid.setAttribute('playsinline','');
+const camVid=$('#camVid'); camVid.playsInline=true; camVid.muted=true; camVid.autoplay=true; camVid.setAttribute('playsinline',''); camVid.setAttribute('muted','');
 const upVid=document.createElement('video'); upVid.playsInline=true; upVid.setAttribute('playsinline',''); upVid.loop=true; upVid.preload='auto';
 const expVid=document.createElement('video'); expVid.playsInline=true; expVid.setAttribute('playsinline','');
-{ const hold=document.createElement('div'); hold.style.cssText='position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;overflow:hidden'; for(const v of [camVid,upVid,expVid]){ v.style.width='2px'; hold.appendChild(v); } document.body.appendChild(hold); }
+{ const hold=document.createElement('div'); hold.style.cssText='position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;overflow:hidden'; for(const v of [upVid,expVid]){ v.style.width='2px'; hold.appendChild(v); } document.body.appendChild(hold); }
 let camStream=null, facing='user';
 let aspect=store.get('aspect','9:16'), quality=store.get('quality',1080);
 const mirrorEl=$('#mirror'); mirrorEl.checked=store.get('mirror',true);
 const micNs=$('#micNs'); micNs.checked=store.get('micNs',true);
-function applyMirror(){ canvas.classList.toggle('mirror',mode==='record'&&facing==='user'&&mirrorEl.checked); }
+function applyMirror(){ const m=mode==='record'&&facing==='user'&&mirrorEl.checked; canvas.classList.toggle('mirror',m); camVid.classList.toggle('mirror',m); }
 mirrorEl.onchange=()=>{ store.set('mirror',mirrorEl.checked); applyMirror(); };
 micNs.onchange=()=>{ store.set('micNs',micNs.checked); if(camStream) startCamera(); };
 function outDims(){ const long=quality==1080?1920:1280, short=quality==1080?1080:720; return aspect==='9:16'?[short,long]:[long,short]; }
@@ -117,23 +119,69 @@ function applyRecordSize(){ if(!renderer) return; const [w,h]=outDims(); rendere
 function segSet(id,val,cb){ $$(id+' button').forEach(b=>{ b.classList.toggle('on',b.dataset.v==String(val)); b.onclick=()=>{ $$(id+' button').forEach(x=>x.classList.toggle('on',x===b)); cb(b.dataset.v); }; }); }
 segSet('#aspectSeg',aspect,v=>{ aspect=v; store.set('aspect',v); if(mode==='record') applyRecordSize(); tracker.reset(); });
 segSet('#qualSeg',quality,v=>{ quality=+v; store.set('quality',quality); if(mode==='record') applyRecordSize(); else if(mode==='upload') setOutputForVideo(); });
+// Plain-camera mode: if WebGL/filters can't run, show the raw camera instead of a black box.
+let rawMode=false; const cmpBtnHide=()=>{ const c=document.querySelector('#compare'); if(c) c.hidden=true; };
+function useRaw(why){ if(rawMode) return; rawMode=true; console.warn('plain camera mode:',why); canvas.hidden=true; camVid.hidden=false; cmpBtnHide();
+  chip.hidden=false; chip.classList.remove('ok'); chip.textContent='Plain camera – filters unavailable on this device'; }
+canvas.addEventListener('webglcontextlost',e=>{ e.preventDefault(); useRaw('WebGL context lost'); });
+const isIOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+function camError(e){
+  const help=$('#camHelp'), btn=$('#startCam'), n=e&&e.name;
+  let msg;
+  if(n==='NotAllowedError'||n==='SecurityError') msg='Camera access was blocked.';
+  else if(n==='NotReadableError'||n==='AbortError'||n==='TrackStartError') msg='Your camera is busy. Close other apps that use the camera (FaceTime, Instagram, another tab), then tap Retry.';
+  else if(n==='NotFoundError'||n==='DevicesNotFoundError') msg='No camera was found on this device.';
+  else if(n==='OverconstrainedError') msg='Your camera didn’t accept the requested settings. Tap Retry to use basic settings.';
+  else msg='Couldn’t start the camera'+(e&&e.message?': '+e.message:'.');
+  $('#phMsg').textContent=msg;
+  help.innerHTML=isIOS?'iPhone: open <b>Settings › Safari › Camera</b> (and Microphone) and pick <b>Allow</b>, or tap <b>aA</b> in the address bar › Website Settings › Camera › Allow. Then tap Retry.'
+    :'Click the camera icon in the address bar and choose <b>Allow</b> for camera and microphone, then tap Retry.';
+  help.hidden=!(n==='NotAllowedError'||n==='SecurityError');
+  btn.textContent='Retry'; btn.disabled=false; $('#placeholder').hidden=false;
+}
+async function getStream(){
+  // Soft constraints only, stepping down until something works.
+  const audio=micNs.checked?{echoCancellation:true,noiseSuppression:true,autoGainControl:true}:{echoCancellation:true,noiseSuppression:false,autoGainControl:true};
+  const vids=[
+    {facingMode:{ideal:facing},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},
+    {facingMode:{ideal:facing},width:{ideal:1280},height:{ideal:720}},
+    {facingMode:{ideal:facing}},
+    true];
+  let last;
+  for(const v of vids){
+    try{ return await navigator.mediaDevices.getUserMedia({video:v,audio}); }
+    catch(e){ last=e; if(e.name==='NotAllowedError'||e.name==='SecurityError') break; }
+  }
+  // Mic refused or broken? Still give them a picture.
+  if(last&&last.name!=='NotAllowedError'){ try{ const st=await navigator.mediaDevices.getUserMedia({video:true}); toast('Microphone unavailable – recording without sound',4000); return st; }catch(e){ last=e; } }
+  else if(last){ try{ const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing}}}); toast('Microphone blocked – recording without sound',4000); return st; }catch(e){ last=e; } }
+  throw last;
+}
+let camBusy=false;
 async function startCamera(){
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ $('#phMsg').textContent='Camera needs a secure (https) page in Safari or Chrome.'; return; }
+  try{ audioCtx(); }catch{}  // unlock audio inside the tap (iOS)
+  if(!window.isSecureContext||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ camError({name:'Insecure',message:'the camera only works on a secure https page in Safari or Chrome'}); return; }
+  if(camBusy) return; camBusy=true;
+  const btn=$('#startCam'); btn.disabled=true; btn.textContent='Starting camera…';
   try{
     if(camStream) camStream.getTracks().forEach(t=>t.stop());
-    camStream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:facing,width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},
-      audio:{echoCancellation:true,noiseSuppression:micNs.checked,autoGainControl:true}});
-    camVid.srcObject=camStream; await camVid.play();
-    $('#placeholder').hidden=true; applyMirror(); applyRecordSize(); tracker.reset(); audioCtx();
-    const vt=camStream.getVideoTracks()[0].getSettings(); diag.cam=`${vt.width}×${vt.height}`;
-  }catch(e){ console.error(e); $('#phMsg').textContent=e.name==='NotAllowedError'?'Camera blocked. Allow camera & microphone for this site in your browser settings, then tap again.':'Couldn’t start the camera: '+e.message; }
+    camStream=await getStream();
+    camVid.srcObject=camStream;
+    try{ await camVid.play(); }catch(e){ console.warn('play() rejected, retrying muted',e); camVid.muted=true; await camVid.play(); }
+    if(!camVid.videoWidth) await new Promise(r=>{ const t=setTimeout(r,3000); camVid.onloadedmetadata=()=>{ clearTimeout(t); r(); }; });
+    $('#placeholder').hidden=true; $('#camHelp').hidden=true; btn.textContent='Turn on camera'; btn.disabled=false;
+    if(!renderer) useRaw('no WebGL2');
+    applyMirror(); applyRecordSize(); tracker.reset(); blackChecks=0; firstFrameAt=performance.now();
+    const vt=camStream.getVideoTracks()[0]; const st=vt&&vt.getSettings?vt.getSettings():{}; diag.cam=`${st.width||camVid.videoWidth}×${st.height||camVid.videoHeight}`;
+  }catch(e){ console.error(e); camError(e); }
+  finally{ camBusy=false; }
 }
 $('#startCam').onclick=startCamera;
 $('#flipBtn').onclick=()=>{ if(recording) return; facing=facing==='user'?'environment':'user'; startCamera(); };
 
 // ---------- render loop ----------
-let compare=false, lastVision=0, exporting=null, frames=0, fpsT=performance.now(), fps=0; const diag={};
+let blackChecks=99, firstFrameAt=0; const probe=document.createElement('canvas'); probe.width=probe.height=8;
+function videoHasPicture(){ try{ const g=probe.getContext('2d',{willReadFrequently:true}); g.drawImage(camVid,0,0,8,8); const d=g.getImageData(0,0,8,8).data; let m=0; for(let i=0;i<d.length;i+=4) m=Math.max(m,d[i],d[i+1],d[i+2]); return m>20; }catch(e){ return true; } } let compare=false, lastVision=0, exporting=null, frames=0, fpsT=performance.now(), fps=0; const diag={};
 const cmp=$('#compare');
 const on=(v)=>()=>{ compare=v; cmp.textContent=v?'Before':'Hold: before'; };
 cmp.addEventListener('pointerdown',on(true)); for(const ev of ['pointerup','pointerleave','pointercancel']) cmp.addEventListener(ev,on(false));
@@ -145,7 +193,7 @@ function currentSource(){
 function needFace(){ return ['lipTint','gloss','lipFull','liner','whites','iris','lash','underEye','eyeSize','eyeLift','eyeOpen','brow','gaze','smooth','shine','neck','jaw','level'].some(k=>S[k]>0.001); }
 function frame(){
   requestAnimationFrame(frame);
-  const src=currentSource(); if(!src||!renderer||!src.w) return;
+  const src=currentSource(); if(!src||!src.w) return; if(!renderer){ return; }
   const now=performance.now(); let face=null;
   if(!src.pass&&!compare){
     const minGap=quality==1080&&!exporting?28:16;
@@ -156,7 +204,10 @@ function frame(){
       if(S.bgMode!=='none'&&vision.seg){ const m=vision.segment(src.el); if(m) renderer.setPersonMask(m.u8,m.w,m.h); }
     } else if(needFace()&&renderer.crop) face=tracker.update(null,renderer.crop,...renderer.size,now), tracker.lost--;
   }
-  renderer.render(src.el,src.w,src.h,S,face,{passthrough:src.pass||compare});
+  if(rawMode&&!exporting&&mode==='record'){ window.__ns={raw:true,vision:vision.status,cam:diag.cam}; return; }
+  try{ renderer.render(src.el,src.w,src.h,S,face,{passthrough:src.pass||compare}); }
+  catch(e){ console.error('render failed',e); if(mode==='record') useRaw('render error'); return; }
+  if(mode==='record'&&!exporting&&blackChecks<8&&now-firstFrameAt>1200){ blackChecks++; if(renderer.isBlank&&renderer.isBlank()&&videoHasPicture()){ if(blackChecks>=6) useRaw('canvas stays black'); } else if(!renderer.isBlank()) blackChecks=99; }
   window.__ns={face:!!face,faceWeight:face?face.weight:0,vision:vision.status,size:renderer.size,fps};
   frames++; if(now-fpsT>1000){ fps=Math.round(frames*1000/(now-fpsT)); frames=0; fpsT=now; $('#diag').textContent=`Preview ${fps} fps · output ${renderer.size.join('×')} · camera ${diag.cam||'-'} · AI ${vision.status} · saves as ${extFor(pickMime()).toUpperCase()}`; }
 }
@@ -195,12 +246,13 @@ async function countdown(){ const c=$('#countdown'); c.hidden=false; for(const n
 recBtn.onclick=async()=>{
   if(!camStream) return startCamera();
   if(recording){ return stopRecording(); }
-  if(typeof MediaRecorder==='undefined'||!canvas.captureStream) return toast('Recording isn’t supported in this browser');
+  if(typeof MediaRecorder==='undefined') return toast('Recording isn’t supported in this browser. Update iOS/Safari or use Chrome.');
+  const plain=rawMode||!canvas.captureStream;
   recBtn.disabled=true; if(prompterOn) resetPrompter();
   await countdown(); recBtn.disabled=false;
-  const vs=canvas.captureStream(30); const tracks=[...vs.getVideoTracks(),...camStream.getAudioTracks()];
+  const vs=plain?camStream:canvas.captureStream(30); const tracks=[...vs.getVideoTracks(),...camStream.getAudioTracks()];
   const mime=pickMime(); const {rec,done}=startRecorder(new MediaStream(tracks),mime,quality==1080?8e6:5e6);
-  recording={rec,done,t0:performance.now(),mime,size:[...renderer.size]};
+  recording={rec,done,t0:performance.now(),mime,size:plain?[camVid.videoWidth,camVid.videoHeight]:[...renderer.size]};
   recBtn.classList.add('on'); recBtn.setAttribute('aria-label','Stop'); $('#recChip').hidden=false; $('#flipBtn').disabled=true;
   if(prompterOn&&$('#promptAuto').checked) startPrompter();
   recording.tick=setInterval(()=>$('#recTime').textContent=fmtT((performance.now()-recording.t0)/1000),250);
@@ -241,6 +293,7 @@ fillFmt($('#tFmt')); fillFmt($('#upFmt'));
 // ---------- export engine (real-time re-render) ----------
 async function seek(el,t){ if(Math.abs(el.currentTime-t)<0.01&&el.readyState>=2) return; await new Promise(res=>{ const f=()=>{ el.removeEventListener('seeked',f); res(); }; el.addEventListener('seeked',f); el.currentTime=t; setTimeout(res,3000); }); }
 async function runExport({el,start,end,passthrough,clean,fmt,w,h,onProgress}){
+  if(!renderer){ toast('Filters/export need WebGL2 – use the ⬇ Raw download instead',4000); return null; }
   const prevSize=[...renderer.size]; renderer.setSize(w,h); tracker.reset();
   const busy=$('#busy'); busy.hidden=false; $('#busyTitle').textContent='Exporting…'; $('#busyBar').style.width='0%';
   let cancelled=false; $('#busyCancel').onclick=()=>{ cancelled=true; };

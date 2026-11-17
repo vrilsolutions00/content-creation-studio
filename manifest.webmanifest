@@ -1,0 +1,12 @@
+{
+  "name": "Content Creation Studio",
+  "short_name": "Creation Studio",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FFF6EE",
+  "theme_color": "#0E6E6B",
+  "icons": [
+    {"src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ]
+}

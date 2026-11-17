@@ -1,4 +1,4 @@
-# Normie Studio
+# Content Creation Studio
 
 A free recording studio for talking-head reels that runs in the browser. It's a static site with no backend, no API keys and no paid services.
 

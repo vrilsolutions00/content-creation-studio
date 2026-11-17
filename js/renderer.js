@@ -1,4 +1,4 @@
-// Normie Studio – WebGL2 beauty renderer (skin, lips & eyes, background, color)
+// Content Creation Studio – WebGL2 beauty renderer (skin, lips & eyes, background, color)
 const VS = `#version 300 es
 in vec2 a; out vec2 vUV;
 void main(){ vUV=a; gl_Position=vec4(a*2.0-1.0,0.0,1.0); }`;
@@ -235,6 +235,9 @@ export class Renderer {
     const fb=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,fb); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
     f={t,f:fb,w,h}; this.fbos[name]=f; return f; }
   setSize(w,h){ this.canvas.width=w; this.canvas.height=h; this.size=[w,h]; }
+  // true if the last frame drawn to the screen is (nearly) black – used to fall back to the plain camera
+  isBlank(){ const gl=this.gl; if(gl.isContextLost&&gl.isContextLost()) return true; try{ gl.bindFramebuffer(gl.FRAMEBUFFER,null); const px=new Uint8Array(4*16);
+    gl.readPixels(Math.floor(this.size[0]/2)-2,Math.floor(this.size[1]/2)-2,4,4,gl.RGBA,gl.UNSIGNED_BYTE,px); let m=0; for(let i=0;i<px.length;i+=4) m=Math.max(m,px[i],px[i+1],px[i+2]); return m<6; }catch(e){ return false; } }
   setBackgroundImage(img){ const gl=this.gl; gl.bindTexture(gl.TEXTURE_2D,this.bgTex); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img); this.bgSize=[img.naturalWidth||img.width,img.naturalHeight||img.height]; }
   setPersonMask(u8,w,h){ const gl=this.gl; gl.bindTexture(gl.TEXTURE_2D,this.personTex); gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
