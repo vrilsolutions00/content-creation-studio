@@ -1,0 +1,11 @@
+{
+  "name": "Vril studios",
+  "install": "bash /agent/repos/content-creation-studio/.cursor/install.sh",
+  "start": "bash /agent/repos/content-creation-studio/.cursor/start.sh",
+  "ports": [
+    { "name": "content-creation-studio", "port": 4173 },
+    { "name": "normies-lens", "port": 4174 },
+    { "name": "snap-count", "port": 4175 },
+    { "name": "vril-site", "port": 4176 }
+  ]
+}
